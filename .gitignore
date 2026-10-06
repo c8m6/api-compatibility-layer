@@ -1,0 +1,5 @@
+.bundle/
+vendor/
+tmp/
+coverage/
+config/config.yaml

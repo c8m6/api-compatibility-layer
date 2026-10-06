@@ -1,0 +1,13 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require_relative '../lib/api_compatibility_layer'
+
+begin
+  config = APICompatibilityLayer::Config.load(ENV.fetch('ACL_CONFIG', 'config/config.yaml'))
+  APICompatibilityLayer::Server.new(config).start
+rescue APICompatibilityLayer::ConfigError, SystemCallError, SocketError => e
+  warn "Configuration/startup error: #{e.message}"
+  exit 1
+end

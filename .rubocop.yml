@@ -1,0 +1,23 @@
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.4
+  Exclude:
+    - vendor/**/*
+    - tmp/**/*
+Style/Documentation:
+  Enabled: false
+Metrics/BlockLength:
+  Exclude:
+    - spec/**/*
+    - script/image_smoke.rb
+# Keep the small service together without splitting classes just for a line count.
+Metrics/ClassLength:
+  Max: 260
+Metrics/MethodLength:
+  Max: 20
+Metrics/AbcSize:
+  Max: 25
+Metrics/CyclomaticComplexity:
+  Max: 12
+Metrics/PerceivedComplexity:
+  Max: 12
