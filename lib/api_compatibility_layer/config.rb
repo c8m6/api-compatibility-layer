@@ -4,6 +4,7 @@ module APICompatibilityLayer
   class Config
     METHODS = %w[GET POST PUT PATCH DELETE].freeze
     NAME = /\A[a-z][a-z0-9_]*\z/
+    PARAMETER = /\A:([a-z][a-z0-9_]*)\z/
     HEADER = /\A[!#$%&'*+.^_`|~0-9A-Za-z-]+\z/
     RESERVED_HEADERS = %w[host content-length transfer-encoding connection keep-alive te trailer upgrade
                           proxy-authorization proxy-authenticate expect].freeze
@@ -69,7 +70,10 @@ module APICompatibilityLayer
     end
 
     def validate_unique_routes(routes)
-      signatures = routes.map { |route| [route['method'], route['path'].gsub(/:[a-z][a-z0-9_]*/, ':param')] }
+      signatures = routes.map do |route|
+        segments = route['path'].split('/', -1).map { |segment| PARAMETER.match?(segment) ? ':param' : segment }
+        [route['method'], segments]
+      end
       fail_config('duplicate method/path pattern') unless signatures.uniq.size == signatures.size
     end
 
@@ -118,11 +122,11 @@ module APICompatibilityLayer
 
     def validate_route_path(path)
       fail_config('path must contain literal segments or :name parameters') unless
-        path.is_a?(String) && path.match?(%r{\A/(?:[A-Za-z0-9._~-]+|:[a-z][a-z0-9_]*|/)*\z})
-      parts = path.split('/').grep(/^:/).map { |part| part.delete_prefix(':') }
+        path.is_a?(String) && path.match?(%r{\A/[A-Za-z0-9._~:/-]*\z})
+      parts = path.split('/').filter_map { |part| PARAMETER.match(part)&.captures&.first }
       fail_config('path parameters must be unique and occupy a whole segment') unless
         parts.uniq == parts && path.split('/').all? do |part|
-          !part.include?(':') || NAME.match?(part.delete_prefix(':'))
+          !part.start_with?(':') || PARAMETER.match?(part)
         end
       parts
     end
@@ -158,7 +162,7 @@ module APICompatibilityLayer
       validate_pairs(request.fetch('query', {}), 'query')
       validate_pairs(request.fetch('headers', {}), 'headers')
       Template.validate(request, names: names)
-      validate_json(request['body']) if request.key?('body')
+      JSONValue.validate(request['body']) if request.key?('body')
     end
 
     def validate_backend_path(path)
@@ -177,7 +181,7 @@ module APICompatibilityLayer
         end
       pairs.each do |key, value|
         validate_header(key, value) if kind == 'headers'
-        fail_config("#{kind} values must be non-null scalars") unless scalar?(value)
+        fail_config("#{kind} values must be non-null scalars") unless JSONValue.scalar?(value)
       end
       fail_config('duplicate header names') if kind == 'headers' && pairs.keys.map(&:downcase).uniq.size != pairs.size
     end
@@ -192,43 +196,32 @@ module APICompatibilityLayer
     end
 
     def validate_response(response, names, backend)
-      mapping(response, %w[status body empty], 'response')
+      mapping(response, %w[status body empty select], 'response')
       status = response.fetch('status', backend ? '{{backend.status}}' : 200)
       fail_config('response.status must be 200..599 or {{backend.status}}') unless
         (status.is_a?(Integer) && (200..599).cover?(status)) || (backend && status == '{{backend.status}}')
       validate_response_body(response, status, backend)
-      validate_json(response['body']) if response.key?('body')
-      Template.validate(response, names: names, backend: backend)
+      JSONValue.validate(response['body']) if response.key?('body')
+      if response.key?('select')
+        Selection.validate(response['select'], names: names, backend: backend)
+      else
+        Template.validate(response, names: names, backend: backend)
+      end
     end
 
     def validate_response_body(response, status, backend)
       fail_config('response.empty must be true') if response.key?('empty') && response['empty'] != true
-      fail_config('response.body and empty are mutually exclusive') if response.key?('body') && response.key?('empty')
-      unless backend || response.key?('body') || response['empty']
-        fail_config('static response needs body or empty: true')
+      if (response.keys & %w[body empty select]).size > 1
+        fail_config('response.body, empty and select are mutually exclusive')
+      end
+      unless backend || response.key?('body') || response['empty'] || response.key?('select')
+        fail_config('static response needs body, select or empty: true')
       end
       fail_config('204, 205 and 304 require empty: true') if [204, 205, 304].include?(status) && !response['empty']
     end
 
-    def validate_json(value)
-      case value
-      when Hash
-        fail_config('JSON object keys must be static strings') unless value.keys.all? do |key|
-          static_key?(key)
-        end
-        value.each_value { |child| validate_json(child) }
-      when Array then value.each { |child| validate_json(child) }
-      else fail_config('body must contain only JSON values') unless value.nil? || scalar?(value)
-      end
-    end
-
     def static_key?(key)
       key.is_a?(String) && !key.include?('{{') && !key.include?('}}')
-    end
-
-    def scalar?(value)
-      value.is_a?(String) || value.is_a?(Integer) || value == true || value == false ||
-        (value.is_a?(Float) && value.finite?)
     end
 
     def nonempty_string?(value)

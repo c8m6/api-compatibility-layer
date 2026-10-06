@@ -21,14 +21,22 @@ module APICompatibilityLayer
       end
     end
 
-    def validate(value, names:, backend: false)
+    def validate(value, names:, backend: false, item: false)
       references(value).each do |reference|
         next if VALUE.match?(reference) && names.include?(VALUE.match(reference)[1])
+        next if item && reference.start_with?('item:') && valid_pointer?(reference.delete_prefix('item:'))
         next if backend && reference == 'backend.status'
         next if backend && reference.start_with?("#{BODY}:") && valid_pointer?(reference.delete_prefix("#{BODY}:"))
 
         raise ConfigError, "unknown template reference: #{reference}"
       end
+    end
+
+    def whole_reference(value)
+      return unless value.is_a?(String)
+
+      match = TOKEN.match(value)
+      match[1] if match && match[0] == value
     end
 
     def valid_pointer?(pointer)
@@ -85,6 +93,8 @@ module APICompatibilityLayer
     def resolve(reference, context)
       if reference.start_with?("#{BODY}:")
         pointer(context.fetch('backend.body').call, reference.delete_prefix("#{BODY}:"))
+      elsif reference.start_with?('item:')
+        pointer(context.fetch('item'), reference.delete_prefix('item:'))
       elsif reference == 'backend.status'
         context.fetch(reference)
       else

@@ -41,7 +41,8 @@ module APICompatibilityLayer
 
     def compile(path)
       segments = path.split('/', -1).map do |segment|
-        segment.start_with?(':') ? "(?<#{segment.delete_prefix(':')}>[^/]+)" : Regexp.escape(segment)
+        parameter = Config::PARAMETER.match(segment)
+        parameter ? "(?<#{parameter[1]}>[^/]+)" : Regexp.escape(segment)
       end
       Regexp.new("\\A#{segments.join('/')}\\z")
     end
@@ -102,6 +103,7 @@ module APICompatibilityLayer
     def response_body(mapping, context, backend, status)
       return '' if mapping['empty'] || [204, 205, 304].include?(status)
       return JSON.generate(Template.render(mapping['body'], context)) if mapping.key?('body')
+      return JSON.generate(Selection.render(mapping['select'], context)) if mapping.key?('select')
       return '' if backend.body.empty?
 
       JSON.generate(backend.json)

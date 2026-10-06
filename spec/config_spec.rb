@@ -15,7 +15,7 @@ RSpec.describe APICompatibilityLayer::Config do
     'wrong routes type' => ->(c) { c['routes'] = {} },
     'unsupported method' => ->(c) { c['routes'][0]['method'] = 'CONNECT' },
     'invalid path' => ->(c) { c['routes'][0]['path'] = 'items' },
-    'partial path parameter' => ->(c) { c['routes'][0]['path'] = '/items/prefix:id' },
+    'partial path parameter' => ->(c) { c['routes'][0]['path'] = '/items/:id:suffix' },
     'duplicate parameters' => ->(c) { c['routes'][0]['path'] = '/:id/:id' },
     'missing backend' => ->(c) { c['routes'][0]['backend']['name'] = 'absent' },
     'unknown backend option' => ->(c) { c['routes'][0]['backend']['script'] = 'exit' },
