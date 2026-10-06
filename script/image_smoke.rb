@@ -16,6 +16,11 @@ backend = WEBrick::HTTPServer.new(Port: 0, BindAddress: '127.0.0.1', AccessLog: 
                                   Logger: WEBrick::Log.new(File::NULL), StartCallback: -> { ready << true })
 servlet = Class.new(WEBrick::HTTPServlet::AbstractServlet) do
   def service(request, response)
+    if request.request_method == 'GET'
+      response.body = JSON.generate([{ 'name' => 'example.test', 'value' => 'selected' }])
+      return
+    end
+
     response.status = 201
     response.body = JSON.generate('method' => request.request_method, 'body' => JSON.parse(request.body),
                                   'authorization' => request['authorization'])
@@ -30,7 +35,13 @@ config = {
   'backends' => { 'inventory' => { 'base_url' => "http://127.0.0.1:#{backend.config[:Port]}" } },
   'routes' => %w[GET POST PUT PATCH DELETE].map do |method|
     { 'method' => method, 'path' => '/ready', 'response' => { 'body' => { 'ok' => true } } }
-  end + [{ 'method' => 'DELETE', 'path' => '/empty', 'response' => { 'status' => 204, 'empty' => true } },
+  end + [{ 'method' => 'GET', 'path' => '/lookup:entry',
+           'extract' => { 'name' => { 'from' => 'query', 'key' => 'name' } },
+           'backend' => { 'name' => 'inventory', 'method' => 'GET', 'path' => '/entries' },
+           'response' => { 'select' => { 'from' => '{{backend.body:}}',
+                                         'where' => { '/name' => '{{values.name}}' },
+                                         'project' => { 'result' => '{{item:/value}}' } } } },
+         { 'method' => 'DELETE', 'path' => '/empty', 'response' => { 'status' => 204, 'empty' => true } },
          { 'method' => 'POST', 'path' => '/items',
            'extract' => { 'body' => { 'from' => 'body', 'pointer' => '' },
                           'token' => { 'from' => 'header', 'key' => 'Authorization' } },
@@ -65,6 +76,10 @@ Tempfile.create(['acl-smoke', '.yaml']) do |file|
         response = http_request(method, '/ready')
         raise "#{method} failed" unless response.code == '200' && JSON.parse(response.body) == { 'ok' => true }
       end
+      selected = http_request('GET', '/lookup:entry?name=example.test')
+      raise 'selection failed' unless JSON.parse(selected.body) == [{ 'result' => 'selected' }]
+      raise 'no-match failed' unless JSON.parse(http_request('GET', '/lookup:entry?name=missing.test').body) == []
+
       response = http_request('POST', '/items', '{"enabled":false}')
       expected = { 'method' => 'PATCH', 'body' => { 'enabled' => false }, 'authorization' => 'Bearer synthetic' }
       raise 'HTTP translation failed' unless response.code == '201' && JSON.parse(response.body) == expected

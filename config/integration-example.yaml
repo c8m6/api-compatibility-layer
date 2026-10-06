@@ -1,0 +1,104 @@
+# Synthetic compatibility example; all operation names and fields are configuration data.
+version: 1
+backends:
+  inventory:
+    base_url: http://backend.example.test:9000
+routes:
+  - method: GET
+    path: /zone_auth
+    extract:
+      domain: {from: query, key: fqdn}
+    response:
+      select:
+        from:
+          - {name: example.test}
+          - {name: lab.example.test}
+        where:
+          /name: '{{values.domain}}'
+        project:
+          name: '{{item:/name}}'
+
+  - method: GET
+    path: /record:host
+    response:
+      body: []
+
+  - method: GET
+    path: /record:a
+    extract:
+      fqdn: {from: query, key: name}
+    backend:
+      name: inventory
+      method: GET
+      path: /v1/entries
+    response:
+      select:
+        from: '{{backend.body:}}'
+        where:
+          /name: '{{values.fqdn}}'
+          /type: A
+        project:
+          ipv4addr: '{{item:/value}}'
+
+  - method: GET
+    path: /record:cname
+    extract:
+      fqdn: {from: query, key: name}
+    backend:
+      name: inventory
+      method: GET
+      path: /v1/entries
+    response:
+      select:
+        from: '{{backend.body:}}'
+        where:
+          /name: '{{values.fqdn}}'
+          /type: CNAME
+        project:
+          canonical: '{{item:/value}}'
+
+  - method: GET
+    path: /ipv4address
+    response:
+      body:
+        - ip_address: 192.0.2.10
+
+  - method: POST
+    path: /record:a
+    extract:
+      name: {from: body, pointer: /name}
+      address: {from: body, pointer: /ipv4addr}
+    backend:
+      name: inventory
+      method: POST
+      path: /v1/entries
+      body:
+        id: 'A:{{values.name}}'
+        name: '{{values.name}}'
+        type: A
+        value: '{{values.address}}'
+    response:
+      empty: true
+
+  - method: POST
+    path: /record:ptr
+    response:
+      status: 204
+      empty: true
+
+  - method: POST
+    path: /record:cname
+    extract:
+      name: {from: body, pointer: /name}
+      target: {from: body, pointer: /canonical}
+    backend:
+      name: inventory
+      method: POST
+      path: /v1/entries
+      body:
+        id: 'CNAME:{{values.name}}'
+        name: '{{values.name}}'
+        type: CNAME
+        value: '{{values.target}}'
+    response:
+      empty: true

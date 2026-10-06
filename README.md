@@ -120,7 +120,11 @@ Supported incoming and backend methods: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`.
 Routes match method and path exactly, in declaration order; the first match wins.
 Query parameters do not affect matching. Paths are case-sensitive and trailing
 slashes matter. Literal path segments use ASCII letters, digits, `.`, `_`, `~`
-and `-`. A `:name` parameter occupies one whole, non-empty segment. Names cannot
+`-` and literal `:` within a segment, such as `/items:lookup`. A segment starting
+with `:` is reserved for a complete `:name` parameter, such as `/items/:id`.
+`/items:lookup/:id` combines both forms; `/items/:id:suffix` is invalid. Only whole
+parameter segments are normalized for duplicate detection, so `/items:a` and
+`/items:b` are distinct. Parameter names cannot
 repeat within a path. Identical method/path patterns (even with differently named
 parameters) are rejected. Put specific routes before overlapping parameter routes.
 
@@ -153,7 +157,7 @@ There are no optional extractions, defaults, filters or wildcard selections.
 
 ### Templates and request transformation
 
-The only template references are:
+The supported template references are:
 
 | Reference | Available in | Value |
 | --- | --- | --- |
@@ -161,6 +165,7 @@ The only template references are:
 | `{{backend.status}}` | Response status/body | Backend status as an integer |
 | `{{backend.body:/pointer}}` | Response body | Selected backend JSON value |
 | `{{backend.body:}}` | Response body | Entire backend JSON document |
+| `{{item:/pointer}}` / `{{item:}}` | Only `response.select.project` | A selected element value / entire selected element |
 
 There is no whitespace inside a reference. Quote YAML strings containing templates.
 A template that occupies the entire JSON value preserves its type, including
@@ -212,14 +217,107 @@ Omit `backend` entirely to avoid any outbound call:
     body: {ready: true}
 ```
 
-Use `empty: true` for zero body bytes, mutually exclusive with `body`. A configured
+Use `empty: true` for zero body bytes. `body`, `empty` and `select` are mutually exclusive. A configured
 204, 205 or 304 requires `empty: true`; forwarded statuses of 204, 205 or 304 also
 suppress the body. `body: null` returns JSON `null`, which is different from empty.
 Non-empty responses use `application/json`. A static or empty response can ignore
-an invalid/non-JSON backend body. There is no status-dependent branching, array
-iteration, pagination aggregation, custom response-header mapping, streaming or
+an invalid/non-JSON backend body. Beyond the bounded selection below, there is no
+array iteration. There is no status-dependent branching, pagination aggregation,
+custom response-header mapping, streaming or
 binary response transformation in this MVP. Requirements beyond these primitives
 need a documented generic design before implementation.
+
+### First-match selection and projection
+
+Use `response.select` to select at most one array element and transform it:
+
+```yaml
+response:
+  select:
+    from: '{{backend.body:/items}}'
+    where:
+      /name: '{{values.name}}'
+      /category: primary
+    project:
+      result: '{{item:/value}}'
+```
+
+`select` requires exactly `from`, `where` and `project`:
+
+- `from` is a literal JSON array or one complete `{{backend.body:...}}` reference.
+  A backend reference requires a configured backend. A literal array is data:
+  even strings containing template delimiters are never expanded there.
+- `where` is a non-empty mapping from valid JSON Pointers, relative to each
+  element, to static JSON scalars (including null) or whole `{{values.name}}`
+  references. Embedded string templates, backend references and item references
+  are rejected here. Conditions are combined with AND, using JSON value equality
+  without string/number/boolean conversion. JSON numbers `1` and `1.0` compare
+  equal; `"1"` and `1` do not. Extracted arrays/objects compare structurally.
+- A missing filter pointer means that element does not match; it is distinct
+  from a present JSON null. The empty pointer selects the entire element,
+  including scalar or array elements.
+- The first matching element in source order wins. Only then is `project`
+  rendered, using the existing JSON template rules and the additional `item`
+  reference. The response body is always `[projected_value]`; even a projected
+  array is one element, not flattened. Without a match the body is exactly `[]`
+  and projection is not evaluated.
+
+A dynamically resolved source that is not an array, a missing source pointer,
+invalid backend JSON or a missing projection pointer returns
+`502 response_mapping_failed`. Projection failures never fall through to a later
+match. Syntax, references, source forms and JSON literals are checked at startup;
+actual backend values are checked at runtime. The normal response status rules,
+bodyless statuses and output size limit still apply. Backend errors are not
+implicitly converted into successful empty results.
+
+Static selection needs no backend, for example:
+
+```yaml
+- method: GET
+  path: /catalog:lookup
+  extract:
+    name: {from: query, key: name}
+  response:
+    select:
+      from:
+        - {name: sample, value: available}
+      where:
+        /name: '{{values.name}}'
+      project:
+        state: '{{item:/value}}'
+```
+
+This is a bounded first-match primitive, with no OR, NOT, general conditions,
+sorting, aggregation, multiple matches, configurable regex, query language,
+functions or scripting. References are evaluated once; request and selected
+values remain data. There are no string transformations or address calculations.
+
+### Complete synthetic compatibility example
+
+[config/integration-example.yaml](config/integration-example.yaml) demonstrates
+all eight operations below against a synthetic collection API. Its backend origin
+is a reserved example hostname and must be replaced with a test backend to run it.
+
+| Operation | Mapping |
+| --- | --- |
+| `GET /zone_auth?fqdn=example.test` | Select from configured domain names; unknown names return `[]` |
+| `GET /record:host?name=lb.example.test` | Static `[]` |
+| `GET /record:a?name=lb.example.test` | Select backend element by both name and type, project its value |
+| `GET /record:cname?name=alias.example.test` | Same selection primitive, different configured type and output key |
+| `GET /ipv4address?network=192.0.2.0&status=UNUSED` | Static `[{"ip_address":"192.0.2.10"}]`, independent of query values |
+| `POST /record:a` | Existing body extraction and backend JSON mapping, with a deterministic ID template |
+| `POST /record:ptr` | Static 204 without a backend call |
+| `POST /record:cname` | Existing body extraction and backend JSON mapping |
+
+The synthetic backend contract is `GET /v1/entries` returning a complete array
+of objects with `name`, `type` and `value`, and `POST /v1/entries` accepting those
+fields plus a string `id`. IDs such as `A:{{values.name}}` are configured templates;
+the engine does not generate or interpret them. Production ID constraints and
+pagination require a compatible backend contract. The static test address makes
+no claim about network membership or availability. All these operation names and
+field meanings exist exclusively in configuration and tests, not in the core.
+The RSpec expression test also creates entries over real local HTTP and reads
+them back through the configured lookup mappings.
 
 ## Error behavior and operation
 
