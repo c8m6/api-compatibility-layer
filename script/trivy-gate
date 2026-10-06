@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+report=${1:?Usage: script/trivy-gate path/to/trivy.json}
+directory=$(dirname "$report")
+trivy convert --format sarif --output "$directory/trivy.sarif" "$report"
+trivy convert --format table "$report"
+jq -e '.SchemaVersion and (.Results | type == "array")' "$report" >/dev/null
+jq '.Results |= map(if .Vulnerabilities then .Vulnerabilities |= map(select(.FixedVersion != null and .FixedVersion != "")) else . end)' \
+  "$report" > "$directory/trivy-fixable.json"
+trivy convert --format table --severity HIGH,CRITICAL --exit-code 1 "$directory/trivy-fixable.json"

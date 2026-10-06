@@ -1,0 +1,142 @@
+name: Build, test and publish container
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TEST_IMAGE: api-compatibility-layer:ci
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+        with:
+          ruby-version: '3.4'
+          bundler-cache: true
+      - name: Validate Ruby application and dependencies
+        run: |
+          bundle exec rspec
+          bundle exec rubocop --force-exclusion
+          mkdir -p tmp/security
+          bundle exec bundler-audit check --update --format json --output tmp/security/bundler-audit.json
+      - name: Resolve release metadata
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = release ]; then
+            # Docker tags cannot contain slashes, whitespace or more than 128 characters.
+            [[ "$RELEASE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]
+            version="$RELEASE_TAG"
+          else
+            version=development
+          fi
+          {
+            echo "APP_VERSION=$version"
+            echo "APP_REVISION=$(git rev-parse HEAD)"
+            echo "APP_BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "APP_SOURCE=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          } >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@v4
+      - name: Build image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          tags: ${{ env.TEST_IMAGE }}
+          build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
+            APP_REVISION=${{ env.APP_REVISION }}
+            APP_BUILD_TIME=${{ env.APP_BUILD_TIME }}
+            APP_SOURCE=${{ env.APP_SOURCE }}
+          cache-from: type=gha,scope=api-compatibility-layer
+          cache-to: type=gha,mode=max,scope=api-compatibility-layer
+      - name: Validate built image
+        run: script/validate-image "$TEST_IMAGE"
+      - name: Scan built image
+        id: trivy
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.74.0
+          image-ref: ${{ env.TEST_IMAGE }}
+          timeout: 15m
+          scanners: vuln
+          vuln-type: os,library
+          format: json
+          output: tmp/security/trivy.json
+          exit-code: '0'
+          ignore-unfixed: false
+          severity: UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL
+      - name: Retain all findings and gate fixable HIGH/CRITICAL vulnerabilities
+        if: ${{ !cancelled() && steps.trivy.outcome == 'success' }}
+        run: script/trivy-gate tmp/security/trivy.json
+      - name: Retain security reports
+        if: ${{ !cancelled() && hashFiles('tmp/security/*') != '' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: security-reports
+          path: tmp/security/
+          retention-days: 14
+      - name: Check Docker Hub configuration
+        if: github.event_name == 'release' && github.event.action == 'published'
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          DOCKERHUB_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          test -n "$DOCKERHUB_USERNAME" || { echo 'Set variable DOCKERHUB_USERNAME'; exit 1; }
+          test -n "$DOCKERHUB_IMAGE" || { echo 'Set variable DOCKERHUB_IMAGE'; exit 1; }
+          test -n "$DOCKERHUB_TOKEN" || { echo 'Set secret DOCKERHUB_TOKEN'; exit 1; }
+      - uses: docker/login-action@v4
+        if: github.event_name == 'release' && github.event.action == 'published'
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Publish the tested image under the exact release tag
+        if: github.event_name == 'release' && github.event.action == 'published'
+        env:
+          PUBLISH_IMAGE: ${{ vars.DOCKERHUB_IMAGE }}:${{ github.event.release.tag_name }}
+        run: |
+          docker tag "$TEST_IMAGE" "$PUBLISH_IMAGE"
+          docker push "$PUBLISH_IMAGE"
+
+  release_notes:
+    needs: image
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: orhun/git-cliff-action@v4.8.0
+        with:
+          version: v2.13.1
+          config: cliff.toml
+          args: --current --strip all
+          github_token: ${{ github.token }}
+        env:
+          OUTPUT: release-notes.md
+      - name: Update published release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file release-notes.md
