@@ -1,0 +1,48 @@
+version: 1
+listen:
+  address: 0.0.0.0
+  port: 8080
+backends:
+  inventory:
+    base_url: http://inventory.example.test:9000
+routes:
+  - method: GET
+    path: /health
+    response:
+      body: {status: ok}
+  - method: GET
+    path: /legacy/items
+    backend:
+      name: inventory
+      method: GET
+      path: /v2/resources
+  - method: POST
+    path: /legacy/items/:id
+    extract:
+      id: {from: path, key: id}
+      region: {from: query, key: region}
+      token: {from: header, key: Authorization}
+      label: {from: body, pointer: /label}
+      enabled: {from: body, pointer: /enabled}
+    backend:
+      name: inventory
+      method: PUT
+      path: /v2/resources/{{values.id}}
+      query:
+        location: '{{values.region}}'
+      headers:
+        Authorization: '{{values.token}}'
+        X-Client: compatibility-example
+      body:
+        name: '{{values.label}}'
+        active: '{{values.enabled}}'
+    response:
+      status: '{{backend.status}}'
+      body:
+        item: '{{backend.body:/resource/id}}'
+        label: '{{backend.body:/resource/name}}'
+  - method: DELETE
+    path: /legacy/placeholder
+    response:
+      status: 204
+      empty: true
