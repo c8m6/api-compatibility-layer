@@ -1,0 +1,7 @@
+*
+!Gemfile
+!Gemfile.lock
+!LICENSE
+!NOTICE
+!lib/**
+!bin/**

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+image=${1:?Usage: script/validate-image IMAGE}
+root=$(cd "$(dirname "$0")/.." && pwd)
+test "$(docker image inspect --format '{{.Config.User}}' "$image")" = '10001:10001'
+test "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}' "$image")" = Apache-2.0
+for label in version revision created source; do
+  test -n "$(docker image inspect --format "{{index .Config.Labels \"org.opencontainers.image.$label\"}}" "$image")"
+done
+docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --cap-drop ALL --security-opt no-new-privileges \
+  --mount "type=bind,src=$root/script/image_smoke.rb,dst=/checks/image_smoke.rb,readonly" \
+  "$image" ruby /checks/image_smoke.rb
