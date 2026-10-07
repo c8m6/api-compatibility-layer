@@ -450,6 +450,49 @@ The workflows never create a GitHub release themselves. GitHub Actions and scann
 versions follow the small, security-oriented release structure used by the
 maintainer's reference project. Dependabot proposes gem, base-image and action updates.
 
+## Manual dependency update report
+
+Open **Actions → Check dependency updates → Run workflow** and choose `all`,
+`ruby`, `docker` or `actions`. The workflow runs only when manually requested;
+it has no push, PR or scheduled trigger. It uses one Ubuntu job, a 20-minute
+timeout and a read-only GitHub token. No extra secrets are needed for the
+project's public dependencies.
+
+Current versions/constraints and candidate updates appear in the job summary
+and Markdown/JSON artifacts retained for 14 days. Major updates are listed
+separately. Missing, skipped or unsuccessful lookups mark the report incomplete
+and fail the job while retaining the available results. A missing candidate
+does not establish that a dependency is secure, compatible or globally current.
+
+[Renovate 44.143.0](https://github.com/renovatebot/renovate/releases/tag/44.143.0)
+is invoked as a separate AGPL-3.0-only development tool through its npm CLI in
+[local lookup mode](https://docs.renovatebot.com/modules/platform/local/).
+It is not included in the Apache-2.0 application or its runtime dependencies.
+The local platform is experimental; the report renderer uses the pinned
+version's structured `packageFiles with updates` log record. Verify that record
+and the renderer tests when upgrading the tool.
+
+Only copies of the root `Gemfile`, `Gemfile.lock`, `Dockerfile` and workflow
+YAML files enter the isolated lookup directory. Ruby lookup includes available
+lockfile information through the Bundler manager; it is not a complete audit of
+every transitive dependency. Docker lookup covers the root Dockerfile's base
+images, excluding installed OS packages. The Dockerfile syntax/frontend
+reference may also appear. Version constraints and Renovate's rules influence
+the candidates. Registry/API limits can prevent a complete result.
+
+The workflow does not evaluate the Gemfile with Bundler, install application
+gems, regenerate lockfiles, build/pull application images, create update PRs,
+commit changes, publish releases or alter container tags. Application scripts
+are disabled. Raw configuration and logs are not uploaded in the report.
+Repeated runs of the same ref and scope cancel older manual checks.
+
+Review and approve updates separately, then apply them through the normal
+branch, validation, PR and release process. This report is a version lookup,
+not a vulnerability scan.
+
+The existing Dependabot configuration remains independent and unchanged.
+Adding this manual workflow does not disable Dependabot's scheduled update PRs.
+
 ## License
 
 Apache License 2.0; see the complete [LICENSE](LICENSE) and retained [NOTICE](NOTICE).
