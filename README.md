@@ -1,5 +1,12 @@
 # API Compatibility Layer
 
+[![CI](https://github.com/c8m6/api-compatibility-layer/actions/workflows/ci.yml/badge.svg)](https://github.com/c8m6/api-compatibility-layer/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/c8m6/api-compatibility-layer/actions/workflows/codeql.yml/badge.svg)](https://github.com/c8m6/api-compatibility-layer/actions/workflows/codeql.yml)
+[![Release](https://img.shields.io/github/v/release/c8m6/api-compatibility-layer?include_prereleases&label=release)](https://github.com/c8m6/api-compatibility-layer/releases)
+[![Docker Hub](https://img.shields.io/docker/v/c8m6/api-compatibility-layer?sort=semver&label=docker)](https://hub.docker.com/r/c8m6/api-compatibility-layer)
+[![License](https://img.shields.io/github/license/c8m6/api-compatibility-layer)](LICENSE)
+[![Ruby](https://img.shields.io/badge/Ruby-3.4-CC342D?logo=ruby&logoColor=white)](https://www.ruby-lang.org/)
+
 A declarative compatibility layer for translating HTTP APIs.
 
 A small Ruby 3.4 HTTP service turns one JSON API into another through trusted YAML
