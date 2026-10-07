@@ -16,3 +16,9 @@ Agreement. Contributors retain ownership of their contributions.
 
 Security vulnerabilities should be reported through the process documented in
 SECURITY.md rather than through public issues.
+
+## Community and security
+
+Follow the [code of conduct](CODE_OF_CONDUCT.md) in project interactions.
+Report undisclosed vulnerabilities using [SECURITY.md](SECURITY.md), rather than
+posting details in public issues or pull requests.
