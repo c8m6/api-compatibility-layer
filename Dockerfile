@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM ruby:3.4-slim AS dependencies
+FROM ruby:4.0-slim AS dependencies
 WORKDIR /app
 ENV BUNDLE_PATH=/usr/local/bundle BUNDLE_WITHOUT=development:test BUNDLE_DEPLOYMENT=1
 COPY Gemfile Gemfile.lock ./
@@ -7,7 +7,7 @@ RUN --mount=type=secret,id=proxy_ca \
     if [ -f /run/secrets/proxy_ca ]; then export SSL_CERT_FILE=/run/secrets/proxy_ca; fi; \
     bundle install && rm -rf /usr/local/bundle/cache
 
-FROM ruby:3.4-slim AS runtime
+FROM ruby:4.0-slim AS runtime
 ARG APP_VERSION=development
 ARG APP_REVISION=unknown
 ARG APP_BUILD_TIME=unknown
