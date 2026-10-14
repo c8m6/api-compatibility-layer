@@ -3,7 +3,7 @@
 source 'https://rubygems.org'
 ruby '~> 3.4.0'
 
-gem 'net-http', '~> 0.9'
+gem 'net-http', '~> 0.10'
 gem 'webrick', '~> 1.9'
 
 group :development, :test do
