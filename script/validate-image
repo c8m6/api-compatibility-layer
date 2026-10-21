@@ -11,3 +11,16 @@ docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   --cap-drop ALL --security-opt no-new-privileges \
   --mount "type=bind,src=$root/script/image_smoke.rb,dst=/checks/image_smoke.rb,readonly" \
   "$image" ruby /checks/image_smoke.rb
+for port in 1053 53; do
+  options=(--cap-drop ALL)
+  if [ "$port" = 53 ]; then
+    options+=(--cap-add NET_BIND_SERVICE -e ACL_RELAY_SMOKE_CAPABILITIES=1)
+  else
+    options+=(--security-opt no-new-privileges)
+  fi
+  docker run --rm --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+    "${options[@]}" -e "ACL_RELAY_SMOKE_PORT=$port" \
+    --mount "type=bind,src=$root/script/relay_smoke.rb,dst=/checks/relay_smoke.rb,readonly" \
+    --mount "type=bind,src=$root/script/relay_fixture.rb,dst=/checks/relay_fixture.rb,readonly" \
+    "$image" ruby /checks/relay_smoke.rb
+done
