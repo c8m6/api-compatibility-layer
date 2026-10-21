@@ -420,6 +420,15 @@ not be enabled). For a listen port of 1024 or higher, both children use ordinary
 Ruby and work with all capabilities dropped and `no-new-privileges` enabled.
 No root user or network-administration capability is required.
 
+Security note: the file capability is granted to a general-purpose Ruby
+interpreter copy, not exclusively to relay operations. Limit executable code
+and filesystem write access within the container. Use a read-only root
+filesystem and restrict inbound and outbound networking. Privileged-port mode
+requires the NET_BIND_SERVICE bounding capability and cannot run with
+no-new-privileges (Kubernetes allowPrivilegeEscalation: false). On OKD, verify
+SCC compatibility before deployment. Prefer ports >= 1024 with all capabilities
+dropped and no-new-privileges when possible.
+
 For example, on an existing isolated test network with the synthetic upstream
 name `resolver.example.test`:
 
@@ -482,8 +491,9 @@ Conventional Commits.
 
 ## GitHub, releases and Docker Hub
 
-PRs and pushes to `main` run RSpec, RuboCop and bundler-audit on Ruby 3.4 with
-Bundler caching; obsolete runs are cancelled. The separate CodeQL workflow runs
+PRs and pushes to `main` run RSpec, RuboCop and bundler-audit on Ruby 3.4,
+and build and validate the Docker image (including relay and capability tests)
+in a separate job. Obsolete runs are cancelled. The separate CodeQL workflow runs
 on `main` pushes and manual dispatch, with Ruby and `build-mode: none`. Private
 repositories need the applicable GitHub Code Security entitlement to run CodeQL;
 workflow configuration does not enable or purchase that service.
