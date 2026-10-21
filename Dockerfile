@@ -20,10 +20,15 @@ LABEL org.opencontainers.image.version=$APP_VERSION \
 ENV BUNDLE_PATH=/usr/local/bundle BUNDLE_WITHOUT=development:test BUNDLE_DEPLOYMENT=1 ACL_CONFIG=/config/config.yaml
 WORKDIR /app
 RUN groupadd --gid 10001 acl && useradd --uid 10001 --gid acl --no-create-home acl
+RUN apt-get update && apt-get install -y --no-install-recommends libcap2-bin \
+    && cp /usr/local/bin/ruby /usr/local/bin/acl-relay-ruby \
+    && setcap cap_net_bind_service=ep /usr/local/bin/acl-relay-ruby \
+    && apt-get purge -y libcap2-bin && rm -rf /var/lib/apt/lists/*
 COPY --from=dependencies /usr/local/bundle /usr/local/bundle
 COPY --chmod=644 Gemfile Gemfile.lock LICENSE NOTICE ./
 COPY --chmod=755 lib ./lib
 COPY --chmod=755 bin ./bin
+COPY --chmod=755 support ./support
 USER 10001:10001
 EXPOSE 8080
 STOPSIGNAL SIGTERM

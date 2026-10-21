@@ -376,6 +376,77 @@ Build args `APP_VERSION`, `APP_REVISION`, `APP_BUILD_TIME` (UTC ISO 8601) and
 source. Optional BuildKit secret `proxy_ca` supplies a CA bundle during dependency
 installation for environments with an HTTPS proxy; it is not copied into layers.
 
+## Optional TCP/UDP companion
+
+`ruby bin/acl-with-relay` runs the HTTP application together with an optional,
+opaque IPv4 TCP/UDP relay. This is useful when a client expects an HTTP API and
+another protocol at the same address, such as an HTTP API plus a DNS endpoint.
+The HTTP application, its mapping configuration, and the default container
+command are unchanged. No protocol parsing or vendor-specific behavior is added
+to the HTTP engine.
+
+The companion uses these environment variables:
+
+| Variable | Meaning | Default |
+| --- | --- | --- |
+| `ACL_RELAY_UPSTREAM_HOST` | Fixed upstream IPv4 address or hostname; required | None |
+| `ACL_RELAY_UPSTREAM_PORT` | Upstream TCP and UDP port | `53` |
+| `ACL_RELAY_LISTEN_PORT` | Local TCP and UDP port, bound on all IPv4 interfaces | `53` |
+
+Both ports must be decimal integers between 1 and 65535. The upstream is trusted
+deployment configuration; client packets cannot choose a different destination.
+Each UDP exchange uses its own connected upstream socket, so concurrent replies
+cannot be delivered to another client. TCP streams and UDP payloads pass through
+without modification. Exchanges/connections are limited to five seconds, with
+at most 32 simultaneous TCP/UDP clients in total. Failed or excess exchanges are
+closed/dropped without logging their contents. There are no retries, caching,
+record creation, or name-resolution semantics in the relay: a DNS upstream must
+itself provide the required records and CNAME resolution for A/AAAA requests.
+
+The supervisor starts both child processes and stops the other if either exits.
+SIGTERM/SIGINT stop both children; shutdown has a five-second grace period before
+remaining children are killed. An invalid companion configuration or a failed
+listener causes the combined command to fail, rather than leaving HTTP running
+on its own.
+
+The container still runs as UID/GID `10001:10001`. For a listen port below 1024,
+only the relay child uses a separate copy of the Ruby interpreter with the Linux
+file capability `CAP_NET_BIND_SERVICE`; the HTTP child uses the ordinary
+interpreter. The supervisor uses the base image's `setpriv` to clear inherited
+and ambient capabilities for HTTP and enable `no-new-privileges` on that child.
+Such a deployment must retain `NET_BIND_SERVICE` in the container's
+capability bounding set and allow file capabilities (`no-new-privileges` must
+not be enabled). For a listen port of 1024 or higher, both children use ordinary
+Ruby and work with all capabilities dropped and `no-new-privileges` enabled.
+No root user or network-administration capability is required.
+
+Security note: the file capability is granted to a general-purpose Ruby
+interpreter copy, not exclusively to relay operations. Limit executable code
+and filesystem write access within the container. Use a read-only root
+filesystem and restrict inbound and outbound networking. Privileged-port mode
+requires the NET_BIND_SERVICE bounding capability and cannot run with
+no-new-privileges (Kubernetes allowPrivilegeEscalation: false). On OKD, verify
+SCC compatibility before deployment. Prefer ports >= 1024 with all capabilities
+dropped and no-new-privileges when possible.
+
+For example, on an existing isolated test network with the synthetic upstream
+name `resolver.example.test`:
+
+```sh
+docker run --rm --network test-services \
+  --read-only --tmpfs /tmp:rw,noexec,nosuid,size=16m \
+  --cap-drop ALL --cap-add NET_BIND_SERVICE \
+  -e ACL_RELAY_UPSTREAM_HOST=resolver.example.test \
+  --mount "type=bind,src=$PWD/config/config.yaml,dst=/config/config.yaml,readonly" \
+  api-compatibility-layer:development ruby bin/acl-with-relay
+```
+
+The container then serves HTTP on its configured port and forwards TCP/UDP port
+53 to the configured upstream. Limit access using the test network; the relay
+does not add authentication. The image validation checks both port 53 and an
+unprivileged port, including an HTTP write followed by CNAME/address lookups,
+concurrent UDP clients, TCP framing, and signal cleanup.
+
 ## Security
 
 Configuration is trusted and determines all destinations and mappings. Restrict
@@ -420,8 +491,9 @@ Conventional Commits.
 
 ## GitHub, releases and Docker Hub
 
-PRs and pushes to `main` run RSpec, RuboCop and bundler-audit on Ruby 3.4 with
-Bundler caching; obsolete runs are cancelled. The separate CodeQL workflow runs
+PRs and pushes to `main` run RSpec, RuboCop and bundler-audit on Ruby 3.4,
+and build and validate the Docker image (including relay and capability tests)
+in a separate job. Obsolete runs are cancelled. The separate CodeQL workflow runs
 on `main` pushes and manual dispatch, with Ruby and `build-mode: none`. Private
 repositories need the applicable GitHub Code Security entitlement to run CodeQL;
 workflow configuration does not enable or purchase that service.

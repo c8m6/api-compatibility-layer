@@ -1,0 +1,56 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'rbconfig'
+require 'timeout'
+require_relative '../support/transport_relay'
+
+children = []
+stopping = false
+
+terminate = lambda do
+  children.each do |pid|
+    Process.kill('TERM', pid)
+  rescue Errno::ESRCH
+    # A child may have exited before its sibling.
+  end
+end
+
+begin
+  relay = TransportRelay.new # Validate before starting either service.
+  relay_ruby = '/usr/local/bin/acl-relay-ruby'
+  relay_ruby = RbConfig.ruby unless relay.privileged_port? && File.executable?(relay_ruby)
+  %w[INT TERM].each do |signal|
+    Signal.trap(signal) do
+      stopping = true
+      terminate.call
+    end
+  end
+  children << Process.spawn(relay_ruby, File.expand_path('acl-relay', __dir__))
+  http_command = [RbConfig.ruby, File.expand_path('acl', __dir__)]
+  if File.executable?('/usr/bin/setpriv')
+    http_command.unshift('/usr/bin/setpriv', '--no-new-privs', '--inh-caps=-all', '--ambient-caps=-all')
+  end
+  children << Process.spawn(*http_command)
+  terminate.call if stopping
+  pid, status = Process.wait2
+  children.delete(pid)
+  exit(stopping ? 0 : [status.exitstatus || 1, 1].max)
+rescue KeyError, ArgumentError, SystemCallError, SocketError => e
+  warn "Companion configuration/startup error: #{e.message}"
+  exit 1
+ensure
+  terminate.call
+  children.each do |pid|
+    Timeout.timeout(5) { Process.wait(pid) }
+  rescue Timeout::Error
+    begin
+      Process.kill('KILL', pid)
+      Process.wait(pid)
+    rescue Errno::ESRCH, Errno::ECHILD
+      # The child may have exited as the shutdown deadline elapsed.
+    end
+  rescue Errno::ESRCH, Errno::ECHILD
+    # Already reaped or exited during shutdown.
+  end
+end

@@ -1,0 +1,11 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative '../support/transport_relay'
+
+begin
+  TransportRelay.new.run
+rescue KeyError, ArgumentError, SystemCallError, SocketError => e
+  warn "Relay configuration/startup error: #{e.message}"
+  exit 1
+end
