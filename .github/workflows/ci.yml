@@ -20,10 +20,22 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-      - uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1
+      - uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1
         with:
           ruby-version: '3.4'
           bundler-cache: true
       - run: bundle exec rspec
       - run: bundle exec rubocop --force-exclusion
       - run: bundle exec bundler-audit check --update
+
+  image-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Build validation image
+        run: docker build --tag api-compatibility-layer:pr-validation .
+      - name: Validate HTTP and TCP/UDP relay image
+        run: bash script/validate-image api-compatibility-layer:pr-validation
