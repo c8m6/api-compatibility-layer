@@ -24,7 +24,7 @@ jobs:
           ref: ${{ github.event.release.tag_name || github.ref }}
           fetch-depth: 0
           persist-credentials: false
-      - uses: ruby/setup-ruby@e81a8fa391b11a595c1b7ed84177cc0fe02faf83 # v1
+      - uses: ruby/setup-ruby@7f797815d8adceb1c412e7abefdd1ab4abc47a5f # v1
         with:
           ruby-version: '3.4'
           bundler-cache: true
@@ -101,7 +101,7 @@ jobs:
           test -n "$DOCKERHUB_USERNAME" || { echo 'Set variable DOCKERHUB_USERNAME'; exit 1; }
           test -n "$DOCKERHUB_IMAGE" || { echo 'Set variable DOCKERHUB_IMAGE'; exit 1; }
           test -n "$DOCKERHUB_TOKEN" || { echo 'Set secret DOCKERHUB_TOKEN'; exit 1; }
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4
         if: github.event_name == 'release' && github.event.action == 'published'
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
